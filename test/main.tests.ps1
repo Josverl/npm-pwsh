@@ -7,6 +7,7 @@ $IsPosix = $IsMacOS -or $IsLinux
 
 $pathSep = if($IsPosix) { ':' } else { ';' }
 $dirSep = if($IsPosix) { '/' } else { '\' }
+
 $PackageFile = "$PSScriptRoot/../pwsh-*.tgz"
 if (Test-Path $PackageFile){
     $tgz = "../$((get-item $PackageFile).name)"
