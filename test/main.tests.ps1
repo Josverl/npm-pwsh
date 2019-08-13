@@ -7,20 +7,18 @@ $IsPosix = $IsMacOS -or $IsLinux
 
 $pathSep = if($IsPosix) { ':' } else { ';' }
 $dirSep = if($IsPosix) { '/' } else { '\' }
-# fixme: assumes that $PSScriptRoot/../pwsh-*.tgz exists 
-try {
-    $tgz = "../$((get-item $PSScriptRoot/../pwsh-*.tgz).name)"
-} catch {
-    $tgz = 'pwsh'
+$PackageFile = "$PSScriptRoot/../pwsh-*.tgz"
+if (Test-Path $PackageFile){
+    $tgz = "../$((get-item $PackageFile).name)"
+} else {
+    Write-Error "-compile and -package must be completed before running test"
 }
-
 
 # $fromTgz = get-item $PSScriptRoot/../pwsh-*.tgz
 # $tgz = "./this-is-the-tgz.tgz"
 # remove-item $tgz -ea continue
 # move-item $fromTgz $tgz
 $npmVersion = (get-content $PSScriptRoot/../package.json | convertfrom-json).version
-#fixme: Cannot find path 'C:\develop\pm-pwsh\dist\buildTags.json' because it does not exist.
 try {
     $pwshVersion = (get-content $PSScriptRoot/../dist/buildTags.json | convertfrom-json).pwshVersion
 } catch {
