@@ -31,10 +31,10 @@ function logBinaryLocations() {
     write-host 'PATH:'
     write-host $env:PATH
     write-host 'BINARY PATHS:'
-    write-host (which node)
-    write-host (which npm)
-    write-host (which pnpm)
-    write-host (which pwsh)
+    write-host (npx which node)
+    write-host (npx which npm)
+    write-host (npx which pnpm)
+    write-host (npx which pwsh)
 }
 
 $npm = (Get-Command npm).Source
@@ -116,8 +116,7 @@ Describe 'pwsh' {
             # Path to node & npm, pnpm, which, sh, etc
             Split-Path -Parent $npm
             Split-Path -Parent $pnpm
-            #fixme: CommandNotFoundException: The term 'which' is not recognized as the name of a cmdlet, function, script file, or operable program.
-            #Split-Path -Parent (which which)
+            Split-Path -Parent (npx which which)
             # Path to sh
             if($IsPosix) {
                 Split-Path -Parent ( Get-Command sh ).Source
