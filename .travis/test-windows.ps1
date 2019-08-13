@@ -9,6 +9,8 @@ Microsoft.PowerShell.Archive\Expand-Archive -Path pwsh.zip -DestinationPath pwsh
 # Install pnpm; needed for some test cases
 npm install -g pnpm
 
+# Clean prior leftovers if any 
+Remove-Item -Path $PSScriptRoot/../test/real/prefix-windows -Force -ErrorAction SilentlyContinue
 # Create npm prefix symlink
 new-item -type Directory -Path $PSScriptRoot/../test/real/prefix-windows
 new-item -type SymbolicLink -Path $PSScriptRoot/../test/prefix-link-windows -Target $PSScriptRoot/../test/real/prefix-windows
