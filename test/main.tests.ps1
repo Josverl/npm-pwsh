@@ -7,13 +7,25 @@ $IsPosix = $IsMacOS -or $IsLinux
 
 $pathSep = if($IsPosix) { ':' } else { ';' }
 $dirSep = if($IsPosix) { '/' } else { '\' }
-$tgz = "../$((get-item $PSScriptRoot/../pwsh-*.tgz).name)"
+# fixme: assumes that $PSScriptRoot/../pwsh-*.tgz exists 
+try {
+    $tgz = "../$((get-item $PSScriptRoot/../pwsh-*.tgz).name)"
+} catch {
+    $tgz = 'pwsh'
+}
+
+
 # $fromTgz = get-item $PSScriptRoot/../pwsh-*.tgz
 # $tgz = "./this-is-the-tgz.tgz"
 # remove-item $tgz -ea continue
 # move-item $fromTgz $tgz
 $npmVersion = (get-content $PSScriptRoot/../package.json | convertfrom-json).version
-$pwshVersion = (get-content $PSScriptRoot/../dist/buildTags.json | convertfrom-json).pwshVersion
+#fixme: Cannot find path 'C:\develop\pm-pwsh\dist\buildTags.json' because it does not exist.
+try {
+    $pwshVersion = (get-content $PSScriptRoot/../dist/buildTags.json | convertfrom-json).pwshVersion
+} catch {
+    $pwshVersion = $null
+}
 
 function logBinaryLocations() {
     write-host 'PATH:'
@@ -104,7 +116,8 @@ Describe 'pwsh' {
             # Path to node & npm, pnpm, which, sh, etc
             Split-Path -Parent $npm
             Split-Path -Parent $pnpm
-            Split-Path -Parent (which which)
+            #fixme: CommandNotFoundException: The term 'which' is not recognized as the name of a cmdlet, function, script file, or operable program.
+            #Split-Path -Parent (which which)
             # Path to sh
             if($IsPosix) {
                 Split-Path -Parent ( Get-Command sh ).Source
@@ -119,6 +132,10 @@ Describe 'pwsh' {
             remove-item -recurse $npmPrefixRealpath -force
         }
         new-item -type directory $npmPrefixRealpath
+        #fixme: ? reverse locations
+        # ItemNotFoundException: Cannot find path 'C:\develop
+        #  pm-pwsh\test\prefix-link-windows' because it does not exist.
+        
         symlink $npmPrefixSymlink $npmPrefixRealpath
 
         # Set npm prefix

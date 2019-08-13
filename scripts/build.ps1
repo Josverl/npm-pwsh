@@ -26,8 +26,11 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 if(($test -or $testWindows) -and (-not $winPwsh)) {
-    $winPwsh = get-command pwsh.cmd -ea continue
-    if(-not $winPwsh) { $winPwsh = get-command pwsh.exe }
+    #fixme: this errors out with : The term 'pwsh.cmd' is not recognized as the name of a cmdlet, function, script file, or operable program.
+    $winPwsh = get-command pwsh.cmd -ErrorAction Continue
+    if(-not $winPwsh) { 
+        $winPwsh = get-command pwsh.exe 
+    }
     $winPwsh = $winPwsh.source
 }
 
