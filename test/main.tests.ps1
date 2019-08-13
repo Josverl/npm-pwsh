@@ -8,12 +8,13 @@ $IsPosix = $IsMacOS -or $IsLinux
 $pathSep = if($IsPosix) { ':' } else { ';' }
 $dirSep = if($IsPosix) { '/' } else { '\' }
 # fixme: assumes that $PSScriptRoot/../pwsh-*.tgz exists 
-try {
-    $tgz = "../$((get-item $PSScriptRoot/../pwsh-*.tgz).name)"
-} catch {
-    $tgz = 'pwsh'
+# this _should_ be created during build 
+$PackageFile = "$PSScriptRoot/../pwsh-*.tgz"
+if (Test-Path $PackageFile){
+    $tgz = "../$((get-item $PackageFile).name)"
+} else {
+    Write-Error "-compile and -package must be completed before running test"
 }
-
 
 # $fromTgz = get-item $PSScriptRoot/../pwsh-*.tgz
 # $tgz = "./this-is-the-tgz.tgz"
