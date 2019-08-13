@@ -47,10 +47,13 @@ if($IsWindows) {
     }
 }
 
-$npmPrefixRealpath = "$PSScriptRoot$( if($IsPosix) { '/real/prefix-posix' } else { '\real\prefix-windows' } )"
-$npmPrefixSymlink = "$PSScriptRoot$( if($IsPosix) { '/prefix-link-posix' } else { '\prefix-link-windows' } )"
-$npmGlobalInstallPath = "$npmPrefixSymlink$( if($IsPosix) { '/bin' } else { '' } )"
-$npmLocalInstallPath = "$PSScriptRoot$( $dirSep )node_modules$( $dirSep ).bin"
+$TestPath = Join-Path $PSScriptRoot "test-project"
+$platform = if($IsPosix) {'posix' } else { 'windows' } 
+
+$npmPrefixRealpath    = Join-Path $TestPath -ChildPath "real" -AdditionalChildPath "prefix-$platform"
+$npmPrefixSymlink     = Join-Path $TestPath -ChildPath "prefix-link-$platform"
+$npmLocalInstallPath  = Join-Path $TestPath -ChildPath 'node_modules' -AdditionalChildPath '.bin'
+$npmGlobalInstallPath = Join-Path $npmPrefixSymlink -ChildPath $( if($IsPosix) { '/bin' } else { '' } )
 
 <### HELPER FUNCTIONS ###>
 function run($block, [switch]$show) {
@@ -81,10 +84,14 @@ Function retry($times, $delay, $block) {
         }
     }
 }
-# Create a symlink.  On Windows this requires popping a UAC prompt (ugh)
+
+# Create a symlink.  On Windows Powershell this requires popping a UAC prompt (ugh)
+# however the old-school mklink.exe honors the 'developer workstation setting'
+
 Function symlink($from, $to) {
-    if((get-item $from).target -eq $to) {
-        write-host "Symlink already exists: $from --> $to"
+    $f = get-item $from -ea SilentlyContinue
+    if( $f -and $f.target -eq $to) {
+        # Write-Verbose  "Symlink already exists: $from --> $to"
         return
     }
     write-host "Symlinking $from --> $to"
@@ -92,10 +99,22 @@ Function symlink($from, $to) {
         new-item -type symboliclink -path $from -Target $to -EA Stop
     }
     else {
-        start-process -verb runas -wait $winPwsh -argumentlist @(
-            '-noprofile', '-file', "$PSScriptRoot/create-symlink.ps1",
-            $from, $to
-        ) -erroraction stop
+        # if Win10 Developer Mode - or running as Admin 
+        if ((Test-Path -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock") -or 
+            ([bool](([System.Security.Principal.WindowsIdentity]::GetCurrent()).groups -match "S-1-5-32-544") ) )  
+        {
+            Write-verbose 'Using old-skool mklink to avoid UAC prompt on developer workstations'
+            # path has been removed for testing :-( 
+            $winpath = $oldPath.Split(';')|?{$_ -like "*:\windows\system32"} | select -First 1
+            $cmd = "$winpath\cmd.exe" 
+            & $cmd /c mklink /D $from $to
+        } else {
+            Write-Error "Need to enable Developer Mode or run as Admin to create the Symlink"
+            # start-process -verb runas -wait $winPwsh -argumentlist @(
+            #     '-noprofile', '-file', "$PSScriptRoot/create-symlink.ps1",
+            #     $from, $to
+            # ) -erroraction stop
+        }
     }
 }
 
@@ -123,16 +142,15 @@ Describe 'pwsh' {
         }) -join $pathSep
 
         <### CLEAN ###>
-        if(test-path ./node_modules) {
-            remove-item -recurse ./node_modules -force
+        # do not  assume that the test install is in the current directory 
+        $test_node_modules = join-path $TestPath "node_modules" 
+        if(test-path $test_node_modules ) {
+            remove-item -recurse $test_node_modules -force
         }
         if(test-path $npmPrefixRealpath) {
             remove-item -recurse $npmPrefixRealpath -force
         }
         new-item -type directory $npmPrefixRealpath
-        #fixme: ? reverse locations
-        # ItemNotFoundException: Cannot find path 'C:\develop
-        #  pm-pwsh\test\prefix-link-windows' because it does not exist.
         
         symlink $npmPrefixSymlink $npmPrefixRealpath
 
@@ -157,28 +175,32 @@ Describe 'pwsh' {
             run { npm config get prefix } | should -be $npmPrefix
         }
 
-        describe 'local installation via npm' {
+        describe 'local NPM installation' {
             beforeeach {
-                run { npm install $tgz }
+                run { npm install $tgz } -show
             }
-            it 'pwsh is in path and is correct version' {
-                (get-command pwsh).source | should -belike "$npmLocalInstallPath*"
+            it 'Local NPN: pwsh is in path and is correct version' {
+                $resolved = (get-command pwsh).source
+                Write-host -F Yellow "        pwsh resolved to: $resolved"
+                $resolved | should -belike "$npmLocalInstallPath*"
                 
                 if($pwshVersion -ne 'latest') {
                     pwsh --version | should -be "PowerShell v$pwshVersion"
                 }
             }
             aftereach {
-                run { npm uninstall $tgz }
-                retry 4 1 { remove-item -r node_modules }
+                run { npm uninstall $tgz }                      #check does this work in other folders ?
+                retry 4 1 {  remove-item $test_node_modules -Recurse }
             }
         }
-        describe 'local installation via pnpm' {
+        describe 'local PMP installation' {
             beforeeach {
-                run { pnpm install $tgz }
+                run { pnpm install $tgz }  -show
             }
-            it 'pwsh is in path and is correct version' {
-                (get-command pwsh).source | should -belike "$npmLocalInstallPath*"
+            it 'Local PMP: pwsh is in path and is correct version' {
+                $resolved = (get-command pwsh).source
+                Write-host -F Yellow "        pwsh resolved to: $resolved"
+                $resolved | should -belike "$npmLocalInstallPath*"
                 
                 if($pwshVersion -ne 'latest') {
                     pwsh --version | should -be "PowerShell v$pwshVersion"
@@ -187,17 +209,19 @@ Describe 'pwsh' {
             aftereach {
                 # run { pnpm uninstall $tgz }
                 write-host 'deleting node_modules'
-                retry 4 1 { remove-item -r node_modules }
+                retry 4 1 {  remove-item $test_node_modules -Recurse }
                 write-host 'deleted node_modules'
             }
         }
-        describe 'global installation' {
+        describe 'NPM --global installation' {
             beforeeach {
                 run { npm install --global $tgz }
             }
-            it 'pwsh is in path and is correct version' {
-                (get-command pwsh).source | should -belike "$npmGlobalInstallPath*"
-                (get-command pwsh).source | should -not -Be $preExistingPwsh
+            it 'Global: pwsh is in path and is correct version' {
+                $resolved = (get-command pwsh).source
+                Write-host -F Yellow "        pwsh resolved to: $resolved"
+                $resolved | should -belike "$npmGlobalInstallPath*"
+                $resolved | should -not -Be $preExistingPwsh
                 if($pwshVersion -ne 'latest') {
                     pwsh --version | should -be "PowerShell v$pwshVersion"
                 }
