@@ -8,12 +8,15 @@ $IsPosix = $IsMacOS -or $IsLinux
 $pathSep = if($IsPosix) { ':' } else { ';' }
 $dirSep = if($IsPosix) { '/' } else { '\' }
 
+
+# the packaged solution will be used as the install source for npm
 $PackageFile = "$PSScriptRoot/../pwsh-*.tgz"
 if (Test-Path $PackageFile){
-    $tgz = "../$((get-item $PackageFile).name)"
+    $tgz = (get-item $PackageFile).FullName
 } else {
     Write-Error "-compile and -package must be completed before running test"
 }
+
 
 # $fromTgz = get-item $PSScriptRoot/../pwsh-*.tgz
 # $tgz = "./this-is-the-tgz.tgz"
@@ -46,14 +49,26 @@ if($IsWindows) {
         $winPwsh = (get-command pwsh.exe).path
     }
 }
-
-$TestPath = Join-Path $PSScriptRoot "test-project"
+# Testpath: where to test the installs
+$TestPath = $PSScriptRoot 
 $platform = if($IsPosix) {'posix' } else { 'windows' } 
 
+# an actual and a symlinked path to thet the install in 
 $npmPrefixRealpath    = Join-Path $TestPath -ChildPath "real" -AdditionalChildPath "prefix-$platform"
 $npmPrefixSymlink     = Join-Path $TestPath -ChildPath "prefix-link-$platform"
+
+# paths used in testing to verify WHERE the pwsh shim should point to
 $npmLocalInstallPath  = Join-Path $TestPath -ChildPath 'node_modules' -AdditionalChildPath '.bin'
-$npmGlobalInstallPath = Join-Path $npmPrefixSymlink -ChildPath $( if($IsPosix) { '/bin' } else { '' } )
+if ($IsWindows) {
+    $npmGlobalInstallPath = $npmPrefixSymlink
+} else {    
+    $npmGlobalInstallPath = Join-Path $npmPrefixSymlink -ChildPath 'bin' 
+}
+
+# $npmPrefixRealpath = "$PSScriptRoot$( if($IsPosix) { '/real/prefix-posix' } else { '\real\prefix-windows' } )"
+# $npmPrefixSymlink = "$PSScriptRoot$( if($IsPosix) { '/prefix-link-posix' } else { '\prefix-link-windows' } )"
+# $npmGlobalInstallPath = "$npmPrefixSymlink$( if($IsPosix) { '/bin' } else { '' } )"
+# $npmLocalInstallPath = "$PSScriptRoot$( $dirSep )node_modules$( $dirSep ).bin"
 
 <### HELPER FUNCTIONS ###>
 function run($block, [switch]$show) {
@@ -119,8 +134,15 @@ Function symlink($from, $to) {
 }
 
 Describe 'pwsh' {
+
+    #create testlocation 
+    New-Item -Path $TestPath -ItemType Directory -ErrorAction SilentlyContinue | Out-Null
+    #copy template files 
+    Copy-Item ( join-path $PSScriptRoot 'template/*') -Destination $TestPath -Container -Force
+    # move to that location
+
     $oldLocation = Get-Location
-    Set-Location $PSScriptRoot
+    Set-Location $TestPath #$PSScriptRoot
     BeforeEach {
         <### SETUP ENVIRONMENT ###>
 
@@ -142,10 +164,8 @@ Describe 'pwsh' {
         }) -join $pathSep
 
         <### CLEAN ###>
-        # do not  assume that the test install is in the current directory 
-        $test_node_modules = join-path $TestPath "node_modules" 
-        if(test-path $test_node_modules ) {
-            remove-item -recurse $test_node_modules -force
+        if(test-path ./node_modules) {
+            remove-item -recurse ./node_modules -force
         }
         if(test-path $npmPrefixRealpath) {
             remove-item -recurse $npmPrefixRealpath -force
@@ -166,41 +186,40 @@ Describe 'pwsh' {
     }
 
     $tests = {
-
-        it 'npm prefix symlink exists' {
-            (Get-Item $npmPrefixSymlink).attributes -eq 'symboliclink'
-        }
-
-        it 'npm prefix set correctly for testing' {
-            run { npm config get prefix } | should -be $npmPrefix
-        }
-
-        describe 'local NPM installation' {
-            beforeeach {
-                run { npm install $tgz } -show
+        context 'ready for testing' {
+            it 'npm prefix symlink exists' {
+                (Get-Item $npmPrefixSymlink).attributes -eq 'symboliclink'
             }
-            it 'Local NPN: pwsh is in path and is correct version' {
-                $resolved = (get-command pwsh).source
-                Write-host -F Yellow "        pwsh resolved to: $resolved"
-                $resolved | should -belike "$npmLocalInstallPath*"
-                
-                if($pwshVersion -ne 'latest') {
-                    pwsh --version | should -be "PowerShell v$pwshVersion"
+
+            it 'npm prefix set correctly for testing' {
+                run { npm config get prefix } | should -be $npmPrefix
+            }
+        }
+
+        context 'local installation via npm' {
+            Write-Host -F DarkMagenta "BEFORE"
+            beforeeach {
+                run { npm install $tgz }
+            }
+            context 'Test' {
+                it 'pwsh is in path and is correct version' {
+                    (get-command pwsh).source | should -belike "$npmLocalInstallPath*"
+                    if($pwshVersion -ne 'latest') {
+                        pwsh --version | should -be "PowerShell v$pwshVersion"
+                    }
                 }
             }
             aftereach {
-                run { npm uninstall $tgz }                      #check does this work in other folders ?
-                retry 4 1 {  remove-item $test_node_modules -Recurse }
+                run { npm uninstall $tgz }
+                retry 4 1 { remove-item -r node_modules }
             }
         }
-        describe 'local PMP installation' {
+        context 'local installation via pnpm' {
             beforeeach {
-                run { pnpm install $tgz }  -show
+                run { pnpm install $tgz }
             }
-            it 'Local PMP: pwsh is in path and is correct version' {
-                $resolved = (get-command pwsh).source
-                Write-host -F Yellow "        pwsh resolved to: $resolved"
-                $resolved | should -belike "$npmLocalInstallPath*"
+            it 'pwsh is in path and is correct version' {
+                (get-command pwsh).source | should -belike "$npmLocalInstallPath*"
                 
                 if($pwshVersion -ne 'latest') {
                     pwsh --version | should -be "PowerShell v$pwshVersion"
@@ -209,19 +228,17 @@ Describe 'pwsh' {
             aftereach {
                 # run { pnpm uninstall $tgz }
                 write-host 'deleting node_modules'
-                retry 4 1 {  remove-item $test_node_modules -Recurse }
+                retry 4 1 { remove-item -r node_modules }
                 write-host 'deleted node_modules'
             }
         }
-        describe 'NPM --global installation' {
+        context 'global installation' {
             beforeeach {
                 run { npm install --global $tgz }
             }
-            it 'Global: pwsh is in path and is correct version' {
-                $resolved = (get-command pwsh).source
-                Write-host -F Yellow "        pwsh resolved to: $resolved"
-                $resolved | should -belike "$npmGlobalInstallPath*"
-                $resolved | should -not -Be $preExistingPwsh
+            it 'pwsh is in path and is correct version' {
+                (get-command pwsh).source | should -belike "$npmGlobalInstallPath*"
+                (get-command pwsh).source | should -not -Be $preExistingPwsh
                 if($pwshVersion -ne 'latest') {
                     pwsh --version | should -be "PowerShell v$pwshVersion"
                 }
